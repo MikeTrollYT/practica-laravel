@@ -2,6 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Models\Project;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class ProjectSeeder extends Seeder
@@ -11,10 +13,10 @@ class ProjectSeeder extends Seeder
      */
     public function run(): void
     {
-        $users = \App\Models\User::factory(5)->create();
+        $users = User::factory(5)->create();
 
         $users->each(function ($user) use ($users) {
-            $projects = \App\Models\Project::factory(2)->create([
+            $projects = Project::factory(2)->create([
                 'user_id' => $user->id,
             ]);
 
