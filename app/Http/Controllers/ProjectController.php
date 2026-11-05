@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Auth;
 
 class ProjectController extends Controller
 {
-
     public function index()
     {
         $projects = Project::with('owner')
@@ -94,20 +93,18 @@ class ProjectController extends Controller
         $this->authorize('update', $project);
 
         $validated = $request->validate([
-            'user_id' => 'required|exists:users,id',
+            'user_id' => 'required|exists:users,id|unique:project_user,user_id,NULL,id,project_id,'.$project->id,
             'role' => 'required|string|max:255',
+            'contribution_hours' => 'required|integer|min:0',
         ]);
-
-        if ($project->participants()->where('user_id', $validated['user_id'])->exists()) {
-            return back()->with('error', 'El usuario ya es participante de este proyecto.');
-        }
 
         $project->participants()->attach($validated['user_id'], [
             'role' => $validated['role'],
-            'contribution_hours' => 0,
+            'contribution_hours' => $validated['contribution_hours'],
         ]);
 
-        return back()->with('success', 'Participante añadido exitosamente.');
+        return redirect()->route('projects.show', $project)
+            ->with('success', 'Participante añadido exitosamente.');
     }
 
     public function removeParticipant(Project $project, User $user)
@@ -116,7 +113,8 @@ class ProjectController extends Controller
 
         $project->participants()->detach($user->id);
 
-        return back()->with('success', 'Participante eliminado exitosamente.');
+        return redirect()->route('projects.show', $project)
+            ->with('success', 'Participante eliminado exitosamente.');
     }
 
     public function updateParticipantHours(Request $request, Project $project, User $user)
@@ -131,6 +129,7 @@ class ProjectController extends Controller
             'contribution_hours' => $validated['contribution_hours'],
         ]);
 
-        return back()->with('success', 'Horas actualizadas exitosamente.');
+        return redirect()->route('projects.show', $project)
+            ->with('success', 'Horas actualizadas exitosamente.');
     }
 }
