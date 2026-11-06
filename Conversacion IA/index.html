@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Visor de la conversación sobre el proyecto Laravel">
+    <title>Conversación IA · Gestión de proyectos</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <aside class="conversation-sidebar" aria-label="Navegación de la conversación">
+        <div class="sidebar-heading">
+            <span class="sidebar-symbol">✦</span>
+            <div>
+                <strong>Navegación</strong>
+                <small>Saltos rápidos</small>
+            </div>
+        </div>
+        <nav class="quick-nav">
+            <section class="nav-group">
+                <h2><span class="nav-dot user-dot"></span>Tus mensajes</h2>
+                <div id="user-navigation" class="nav-links"></div>
+            </section>
+            <section class="nav-group">
+                <h2><span class="nav-dot report-dot"></span>Informes y avances</h2>
+                <div id="report-navigation" class="nav-links"></div>
+            </section>
+        </nav>
+    </aside>
+    <main class="main-content">
+        <header class="page-header">
+            <div class="brand">
+                <span class="brand-mark">✦</span>
+                <span>
+                    <strong>Conversación IA</strong>
+                    <small>CONVERSACION_IA.md</small>
+                </span>
+            </div>
+            <span id="load-status" class="load-status">Cargando conversación…</span>
+        </header>
+
+        <section class="hero">
+            <div class="hero-copy">
+                <div class="chip"><span class="chip-dot"></span> Sesión documentada</div>
+                <h1>Conversacion con Claude Code</h1>
+                <p>Todos los mensajes de la conversación con Claude Code.</p>
+            </div>
+        </section>
+
+        <div class="conversation-toolbar">
+                <div>
+                    <h2>Hilo de conversación</h2>
+                    <span id="result-count" class="result-count">Preparando mensajes…</span>
+        </div>
+                <label class="search-box">
+                    <span aria-hidden="true">⌕</span>
+                    <input id="search-input" type="search" placeholder="Buscar en la conversación…" autocomplete="off">
+                </label>
+            </div>
+
+            <section id="conversation" class="conversation" aria-live="polite">
+                <div class="empty-state">Cargando el documento Markdown…</div>
+            </section>
+
+            <footer class="page-footer">
+                <span>Conversación renderizada desde <code>CONVERSACION_IA.md</code></span>
+                <button id="back-to-top" type="button">Volver arriba ↑</button>
+            </footer>
+    </main>
+
+    <script>
+        const markdownPath = './CONVERSACION_IA.md';
+        const conversation = document.querySelector('#conversation');
+        const searchInput = document.querySelector('#search-input');
+        const loadStatus = document.querySelector('#load-status');
+        const resultCount = document.querySelector('#result-count');
+        const userNavigation = document.querySelector('#user-navigation');
+        const reportNavigation = document.querySelector('#report-navigation');
+        let allMessages = [];
+
+        const escapeHtml = (value) => value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+
+        const inlineMarkdown = (value) => {
+            let html = escapeHtml(value);
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            html = html.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+            html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            html = html.replace(/_([^_]+)_/g, '<em>$1</em>');
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+            return html;
+        };
+
+        function renderMarkdown(markdown, messageId) {
+            const lines = markdown.replace(/\r/g, '').split('\n');
+            const output = [];
+            let inCode = false;
+            let codeLines = [];
+            let listType = null;
+
+            const closeList = () => {
+                if (listType) {
+                    output.push(`</${listType}>`);
+                    listType = null;
+                }
+            };
+
+            lines.forEach((line, lineIndex) => {
+                if (line.trim().startsWith('```')) {
+                    if (inCode) {
+                        output.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+                        codeLines = [];
+                    }
+                    inCode = !inCode;
+                    closeList();
+                    return;
+                }
+
+                if (inCode) {
+                    codeLines.push(line);
+                    return;
+                }
+
+                const heading = line.match(/^(#{1,4})\s+(.+)$/);
+                const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+                const numbered = line.match(/^\s*\d+\.\s+(.+)$/);
+
+                if (heading) {
+                    closeList();
+                    const level = Math.min(heading[1].length + 1, 5);
+                    output.push(`<h${level} id="${messageId}-heading-${lineIndex}">${inlineMarkdown(heading[2])}</h${level}>`);
+                } else if (bullet || numbered) {
+                    const type = bullet ? 'ul' : 'ol';
+                    if (listType !== type) {
+                        closeList();
+                        listType = type;
+                        output.push(`<${type}>`);
+                    }
+                    output.push(`<li>${inlineMarkdown((bullet || numbered)[1])}</li>`);
+                } else if (/^\s*---+\s*$/.test(line)) {
+                    closeList();
+                    output.push('<hr>');
+                } else if (/^\s*>\s?/.test(line)) {
+                    closeList();
+                    output.push(`<blockquote>${inlineMarkdown(line.replace(/^\s*>\s?/, ''))}</blockquote>`);
+                } else if (line.trim()) {
+                    closeList();
+                    output.push(`<p>${inlineMarkdown(line)}</p>`);
+                } else {
+                    closeList();
+                }
+            });
+
+            closeList();
+            if (inCode && codeLines.length) {
+                output.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
+            }
+            return output.join('');
+        }
+
+        function parseConversation(markdown) {
+            const messages = [];
+            let current = null;
+
+            markdown.replace(/\r/g, '').split('\n').forEach((line) => {
+                const marker = line.match(/^(USER|ASSISTANT):\s?(.*)$/);
+                if (marker) {
+                    if (current) {
+                        messages.push(current);
+                    }
+                    current = {
+                        role: marker[1] === 'USER' ? 'user' : 'assistant',
+                        content: marker[2] ? [marker[2]] : []
+                    };
+                } else if (current) {
+                    current.content.push(line);
+                }
+            });
+
+            if (current) {
+                messages.push(current);
+            }
+            return messages.map((message, index) => ({ ...message, id: `message-${index + 1}` }));
+        }
+
+        function renderMessages(messages) {
+            conversation.innerHTML = '';
+            if (!messages.length) {
+                conversation.innerHTML = '<div class="empty-state">No se encontraron mensajes con ese criterio.</div>';
+                resultCount.textContent = '0 mensajes visibles';
+                return;
+            }
+
+            messages.forEach((message, index) => {
+                const article = document.createElement('article');
+                article.className = `message ${message.role}`;
+                article.id = message.id;
+                article.dataset.search = message.content.join(' ').toLowerCase();
+                article.innerHTML = `
+                    <div class="message-avatar" aria-hidden="true">${message.role === 'user' ? 'Tú' : '✦'}</div>
+                    <div class="message-body">
+                        <div class="message-meta">
+                            <strong>${message.role === 'user' ? 'Tú' : 'Asistente IA'}</strong>
+                            <span class="message-number">${String(index + 1).padStart(2, '0')}</span>
+                        </div>
+                        <div class="message-content">${renderMarkdown(message.content.join('\n'), message.id)}</div>
+                    </div>
+                `;
+                conversation.appendChild(article);
+            });
+
+            resultCount.textContent = `${messages.length} ${messages.length === 1 ? 'mensaje visible' : 'mensajes visibles'}`;
+        }
+
+        function messagePreview(message) {
+            const text = message.content.join(' ').replace(/\s+/g, ' ').trim();
+            return text.length > 58 ? `${text.slice(0, 58)}…` : text;
+        }
+
+        function getReportHeadings(message) {
+            return message.content
+                .map((line, lineIndex) => ({ match: line.match(/^##\s+(.+)$/), lineIndex }))
+                .filter(({ match }) => match)
+                .map(({ match, lineIndex }) => ({
+                    title: match[1].replace(/[*_`]/g, '').trim(),
+                    targetId: `${message.id}-heading-${lineIndex}`
+                }))
+                .filter(({ title }) => /informe|avance|verificaci[oó]n|resumen|fase\s+[1-5]|checklist|estado final|resultados de las pruebas/i.test(title));
+        }
+
+        function createNavigationLink(message, index, labelPrefix, targetId = message.id) {
+            const link = document.createElement('a');
+            link.href = `#${targetId}`;
+            link.className = 'nav-link';
+            link.innerHTML = `
+                <span class="nav-link-number">${String(index + 1).padStart(2, '0')}</span>
+                <span class="nav-link-text">${escapeHtml(labelPrefix || messagePreview(message))}</span>
+            `;
+            link.addEventListener('click', (event) => {
+                event.preventDefault();
+                document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+            return link;
+        }
+
+        function updateNavigation(messages) {
+            userNavigation.replaceChildren();
+            reportNavigation.replaceChildren();
+
+            const userMessages = messages
+                .map((message, index) => ({ message, index }))
+                .filter(({ message }) => message.role === 'user');
+            const reportMessages = messages
+                .map((message, index) => ({ message, index }))
+                .filter(({ message }) => message.role === 'assistant')
+                .map(({ message, index }) => {
+                    const [heading] = getReportHeadings(message);
+
+                    return heading ? { message, index, heading } : null;
+                })
+                .filter(Boolean);
+
+            userMessages.forEach(({ message, index }) => {
+                userNavigation.appendChild(createNavigationLink(message, index, messagePreview(message)));
+            });
+            reportMessages.forEach(({ message, index, heading }) => {
+                reportNavigation.appendChild(createNavigationLink(message, index, heading.title, heading.targetId));
+            });
+
+            if (!userMessages.length) {
+                userNavigation.innerHTML = '<span class="nav-empty">No hay mensajes</span>';
+            }
+            if (!reportMessages.length) {
+                reportNavigation.innerHTML = '<span class="nav-empty">No hay informes</span>';
+            }
+        }
+
+        function loadMarkdown(markdown) {
+            allMessages = parseConversation(markdown);
+            renderMessages(allMessages);
+            updateNavigation(allMessages);
+            loadStatus.textContent = `${allMessages.length} mensajes`;
+        }
+
+        async function fetchMarkdown() {
+            try {
+                const response = await fetch(markdownPath);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                loadMarkdown(await response.text());
+            } catch (error) {
+                loadStatus.textContent = 'No se pudo cargar el documento';
+                conversation.innerHTML = `
+                    <div class="empty-state error-state">
+                        <strong>No se pudo cargar el Markdown automáticamente.</strong>
+                        <p>Abre <code>conversacion.html</code> con Live Server o un servidor local para cargar <code>CONVERSACION_IA.md</code>.</p>
+                    </div>
+                `;
+                resultCount.textContent = 'Esperando documento';
+            }
+        }
+
+        searchInput.addEventListener('input', (event) => {
+            const query = event.target.value.trim().toLowerCase();
+            const filtered = query
+                ? allMessages.filter((message) => message.content.join(' ').toLowerCase().includes(query))
+                : allMessages;
+            renderMessages(filtered);
+        });
+
+        document.querySelector('#back-to-top').addEventListener('click', () => {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        fetchMarkdown();
+    </script>
+</body>
+</html>
